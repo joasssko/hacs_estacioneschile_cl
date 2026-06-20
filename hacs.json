@@ -1,0 +1,8 @@
+{
+  "name": "Estaciones de combustible y servicios en Chile",
+  "render_readme": true,
+  "homeassistant": "2023.8.0",
+  "country": [
+    "CL"
+  ]
+}

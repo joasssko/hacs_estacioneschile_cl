@@ -1,0 +1,17 @@
+{
+  "domain": "estacioneschile_cl",
+  "name": "Estaciones y servicios Chile",
+  "codeowners": [
+    "@joasssko"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/joasssko/estacioneschile_cl",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/joasssko/estacioneschile_cl/issues",
+  "requirements": [
+    "aiohttp"
+  ],
+  "version": "1.0.0"
+}

@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Estaciones de Combustible Chile",
+        "description": "Configura las estaciones más cercanas. Puedes ingresar la capacidad de tu estanque y combustible preferido para calcular el costo de llenado.",
+        "data": {
+          "tank_capacity": "Capacidad del estanque (Litros)",
+          "preferred_fuel": "Combustible preferido",
+          "station_count": "Número de estaciones a mostrar"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ajustes de Estaciones de Combustible",
+        "description": "Modifica la capacidad del estanque, el tipo de combustible preferido o la cantidad de estaciones a mostrar.",
+        "data": {
+          "tank_capacity": "Capacidad del estanque (Litros)",
+          "preferred_fuel": "Combustible preferido",
+          "station_count": "Número de estaciones a mostrar"
+        }
+      }
+    }
+  }
+}

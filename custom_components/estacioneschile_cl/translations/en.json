@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Chile Fuel Stations",
+        "description": "Configure closest fuel stations. You can enter your tank capacity and preferred fuel type to calculate full-tank pricing.",
+        "data": {
+          "tank_capacity": "Tank Capacity (Liters)",
+          "preferred_fuel": "Preferred Fuel Type",
+          "station_count": "Number of stations to display"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fuel Stations Settings",
+        "description": "Modify tank capacity, preferred fuel, or the number of stations to display.",
+        "data": {
+          "tank_capacity": "Tank Capacity (Liters)",
+          "preferred_fuel": "Preferred Fuel Type",
+          "station_count": "Number of stations to display"
+        }
+      }
+    }
+  }
+}
