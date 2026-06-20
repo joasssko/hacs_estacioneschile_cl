@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 import async_timeout
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -22,10 +23,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Serves the www/ folder of the custom component at /estacioneschile_cl_local/
     # This exposes the Lovelace card: /estacioneschile_cl_local/estacioneschile-card.js
     www_path = hass.config.path("custom_components/estacioneschile_cl/www")
-    hass.http.register_static_path(
-        "/estacioneschile_cl_local",
-        www_path,
-        cache_headers=False,
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig("/estacioneschile_cl_local", www_path, False)]
     )
 
     session = async_get_clientsession(hass)
