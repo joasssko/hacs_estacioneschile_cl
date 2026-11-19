@@ -1,222 +1,206 @@
 """Sensor platform for Estaciones y Servicios Chile integration."""
 from __future__ import annotations
 
-import math
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.const import UnitOfLength
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    DOMAIN,
-    CONF_TANK_CAPACITY,
-    CONF_PREFERRED_FUEL,
-    CONF_STATION_COUNT,
-    DEFAULT_TANK_CAPACITY,
-    DEFAULT_PREFERRED_FUEL,
-    DEFAULT_STATION_COUNT,
-    PRODUCT_CODES,
-    SERVICES_COPEC,
-    SERVICES_OTHER,
-)
+from .const import DOMAIN, FUEL_TYPES, FUELS_ENABLED_BY_DEFAULT, NO_FUEL
+from .coordinator import EstacionesChileConfigEntry, EstacionesChileCoordinator
 
-
-def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Calculate distance in km using Haversine formula."""
-    try:
-        lat1, lon1, lat2, lon2 = map(float, [lat1, lon1, lat2, lon2])
-    except (ValueError, TypeError):
-        return float("inf")
-
-    R = 6371.0  # Radius of earth in kilometers
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return round(R * c, 2)
+PRICE_UNIT = "CLP/L"
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: EstacionesChileConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the sensor platform from a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([EstacionesChileSensor(coordinator, entry)])
+    coordinator = entry.runtime_data
+    entities: list[SensorEntity] = [EstacionesChileSensor(coordinator), BestSavingSensor(coordinator)]
+    entities.extend(
+        CheapestFuelSensor(coordinator, fuel) for fuel in FUEL_TYPES if fuel != NO_FUEL
+    )
+    async_add_entities(entities)
 
 
-class EstacionesChileSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Estaciones y Servicios Chile Sensor."""
+class EstacionesChileEntity(CoordinatorEntity[EstacionesChileCoordinator]):
+    """Base entity grouped under the integration device."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: EstacionesChileCoordinator) -> None:
+        """Initialize the entity."""
+        super().__init__(coordinator)
+        self._attr_device_info = coordinator.device_info
+
+
+class EstacionesChileSensor(EstacionesChileEntity, SensorEntity):
+    """Closest fuel stations, with their prices and locations as attributes.
+
+    This is the entity used by the custom Lovelace card.
+    """
 
     _attr_icon = "mdi:gas-station"
+    _attr_translation_key = "closest_stations"
+    # The station list is large (it can exceed the 16 KB attribute limit of the
+    # recorder) and changes every refresh: keep it out of the database.
+    _unrecorded_attributes = frozenset(
+        {"stations", "all_stations", "cheapest_station", "best_saving_station"}
+    )
 
-    def __init__(self, coordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: EstacionesChileCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
-        self._entry = entry
-        self._attr_name = "Estaciones Chile Más Cercanas"
+        # Kept from v1.0 so existing installations keep their entity
         self._attr_unique_id = f"{DOMAIN}_closest_stations"
-
-    @property
-    def native_value(self) -> Any:
-        """Return the state of the sensor."""
-        stations = self.extra_state_attributes.get("stations", [])
-        if not stations:
-            return None
-
-        # Get preferred fuel from options or config
-        preferred_fuel = self._entry.options.get(
-            CONF_PREFERRED_FUEL,
-            self._entry.data.get(CONF_PREFERRED_FUEL, DEFAULT_PREFERRED_FUEL)
-        )
-
-        if preferred_fuel != "Ninguno":
-            # State is the price of preferred fuel at the closest station
-            # that has this fuel type available
-            for station in stations:
-                prices = station.get("prices", {})
-                if preferred_fuel in prices:
-                    return prices[preferred_fuel]
-            return None
-
-        # If no preferred fuel, return the distance of the closest station
-        return stations[0].get("distance")
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement."""
-        preferred_fuel = self._entry.options.get(
-            CONF_PREFERRED_FUEL,
-            self._entry.data.get(CONF_PREFERRED_FUEL, DEFAULT_PREFERRED_FUEL)
-        )
-        if preferred_fuel != "Ninguno":
-            return "CLP"
-        return "km"
+        data = self.coordinator.data
+        if data and data.preferred_fuel != NO_FUEL:
+            return PRICE_UNIT
+        return UnitOfLength.KILOMETERS
+
+    @property
+    def native_value(self) -> float | int | None:
+        """Preferred fuel price at the closest station selling it, or distance to the closest station."""
+        data = self.coordinator.data
+        if not data or not data.stations:
+            return None
+        if data.preferred_fuel != NO_FUEL:
+            return next(
+                (
+                    s["prices"][data.preferred_fuel]
+                    for s in data.stations
+                    if data.preferred_fuel in s["prices"]
+                ),
+                None,
+            )
+        return data.stations[0]["distance"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return entity specific state attributes."""
-        if not self.coordinator.data:
+        """Return the stations used by the card."""
+        data = self.coordinator.data
+        if not data:
             return {}
+        attrs = {
+            "tank_capacity": data.tank_capacity,
+            "consumption": data.consumption,
+            "preferred_fuel": data.preferred_fuel,
+            "companies": data.companies,
+            "home_latitude": data.home[0],
+            "home_longitude": data.home[1],
+            "stations": data.stations,
+            "cheapest_station": data.cheapest.get(data.preferred_fuel),
+            "best_saving_station": data.best_saving,
+        }
+        if data.all_stations:
+            # Only when a company filter is set: lets the card show "all companies"
+            attrs["all_stations"] = data.all_stations
+        return attrs
 
-        # Resolve home location
-        home_lat = None
-        home_lon = None
 
-        # 1. Try zone.home
-        zone_home = self.hass.states.get("zone.home")
-        if zone_home:
-            home_lat = zone_home.attributes.get("latitude")
-            home_lon = zone_home.attributes.get("longitude")
+class CheapestFuelSensor(EstacionesChileEntity, SensorEntity):
+    """Lowest price of one fuel among the closest stations."""
 
-        # 2. Fallback to hass config
-        if home_lat is None or home_lon is None:
-            home_lat = self.hass.config.latitude
-            home_lon = self.hass.config.longitude
+    _attr_icon = "mdi:gas-station-outline"
+    _attr_translation_key = "cheapest_fuel"
+    _attr_native_unit_of_measurement = PRICE_UNIT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 0
 
-        # 3. Last fallback: Santiago coordinates if none are set
-        if home_lat is None or home_lon is None:
-            home_lat = -33.4489
-            home_lon = -70.6693
+    def __init__(self, coordinator: EstacionesChileCoordinator, fuel: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._fuel = fuel
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_cheapest_{fuel.lower()}"
+        self._attr_translation_placeholders = {"fuel": FUEL_TYPES[fuel]}
+        self._attr_entity_registry_enabled_default = fuel in FUELS_ENABLED_BY_DEFAULT
 
-        # Resolve config preferences
-        tank_capacity = self._entry.options.get(
-            CONF_TANK_CAPACITY,
-            self._entry.data.get(CONF_TANK_CAPACITY, DEFAULT_TANK_CAPACITY)
-        )
-        preferred_fuel = self._entry.options.get(
-            CONF_PREFERRED_FUEL,
-            self._entry.data.get(CONF_PREFERRED_FUEL, DEFAULT_PREFERRED_FUEL)
-        )
-        station_count = self._entry.options.get(
-            CONF_STATION_COUNT,
-            self._entry.data.get(CONF_STATION_COUNT, DEFAULT_STATION_COUNT)
-        )
+    def _station(self) -> dict[str, Any] | None:
+        data = self.coordinator.data
+        return data.cheapest.get(self._fuel) if data else None
 
-        processed_stations = []
+    @property
+    def native_value(self) -> int | None:
+        """Return the lowest price."""
+        station = self._station()
+        return station["prices"][self._fuel] if station else None
 
-        for station in self.coordinator.data:
-            lat = station.get("Latitud")
-            lon = station.get("Longitud")
-            if not lat or not lon:
-                continue
-
-            # Calculate distance
-            dist = calculate_distance(home_lat, home_lon, lat, lon)
-
-            # Parse prices
-            prices_raw = station.get("Prices", [])
-            prices = {}
-            for p in prices_raw:
-                cod_pro = str(p.get("CodPro"))
-                fuel_key = PRODUCT_CODES.get(cod_pro)
-                if fuel_key:
-                    try:
-                        prices[fuel_key] = int(p.get("Precio"))
-                    except (ValueError, TypeError):
-                        pass
-
-            # Parse services
-            servicios_obj = station.get("Servicios", {})
-            cod_ser = servicios_obj.get("CodSer", [])
-            company = station.get("Compania", "").upper()
-            services_list = []
-
-            service_map = SERVICES_COPEC if "COPEC" in company else SERVICES_OTHER
-            for s_code in cod_ser:
-                s_code_str = str(s_code)
-                if s_code_str in service_map:
-                    services_list.append(service_map[s_code_str])
-
-            # Calculate price to full tank for this station
-            price_to_full = None
-            pref_price = None
-            if preferred_fuel != "Ninguno" and preferred_fuel in prices:
-                pref_price = prices[preferred_fuel]
-                price_to_full = round(pref_price * tank_capacity, 0)
-
-            processed_stations.append({
-                "id": station.get("CodEs"),
-                "company": station.get("Compania", "Copec"),
-                "comuna": station.get("Comuna"),
-                "address": station.get("Direccion"),
-                "latitude": float(lat),
-                "longitude": float(lon),
-                "distance": dist,
-                "prices": prices,
-                "services": services_list,
-                "preferred_fuel_price": pref_price,
-                "price_to_full_tank": price_to_full,
-                "type": station.get("Tipo"),
-            })
-
-        # Sort by distance
-        processed_stations.sort(key=lambda x: x["distance"])
-
-        # Take closest
-        closest_stations = processed_stations[:station_count]
-
-        # Find cheapest station for preferred fuel (if configured)
-        cheapest_station = None
-        if preferred_fuel != "Ninguno":
-            valid_stations = [s for s in closest_stations if preferred_fuel in s["prices"]]
-            if valid_stations:
-                cheapest_station = min(valid_stations, key=lambda x: x["prices"][preferred_fuel])
-
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return where that price is."""
+        station = self._station()
+        if not station:
+            return {}
+        data = self.coordinator.data
         return {
-            "tank_capacity": tank_capacity,
-            "preferred_fuel": preferred_fuel,
-            "home_latitude": home_lat,
-            "home_longitude": home_lon,
-            "stations": closest_stations,
-            "cheapest_station": cheapest_station,
+            "station_id": station["id"],
+            "company": station.get("company"),
+            "address": station.get("address"),
+            "comuna": station.get("comuna"),
+            "distance_km": station.get("distance"),
+            "price_to_full_tank": round(station["prices"][self._fuel] * data.tank_capacity),
+            # Lets the native map card show where the cheapest station is
+            "latitude": station["latitude"],
+            "longitude": station["longitude"],
+        }
+
+
+class BestSavingSensor(EstacionesChileEntity, SensorEntity):
+    """Highest net saving for the preferred fuel versus the closest station."""
+
+    _attr_icon = "mdi:piggy-bank-outline"
+    _attr_translation_key = "best_saving"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "CLP"
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, coordinator: EstacionesChileCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_best_saving"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the saving in CLP (0 when the closest station is already the best)."""
+        data = self.coordinator.data
+        if not data or data.best_saving is None:
+            return None
+        return max(0, data.best_saving["savings"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return where to go and how it was calculated."""
+        data = self.coordinator.data
+        if not data or data.best_saving is None:
+            return {}
+        best = data.best_saving
+        fuel = data.preferred_fuel
+        reference = min(
+            (s for s in data.stations if fuel in s["prices"]), key=lambda s: s["distance"]
+        )
+        return {
+            "fuel": fuel,
+            "station_id": best["id"],
+            "company": best.get("company"),
+            "address": best.get("address"),
+            "distance_km": best.get("distance"),
+            "price": best["prices"][fuel],
+            "reference_station_id": reference["id"],
+            "reference_company": reference.get("company"),
+            "reference_address": reference.get("address"),
+            "reference_price": reference["prices"][fuel],
+            "tank_capacity": data.tank_capacity,
+            "consumption_km_l": data.consumption,
+            "latitude": best["latitude"],
+            "longitude": best["longitude"],
         }

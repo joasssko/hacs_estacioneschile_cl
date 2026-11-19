@@ -1,104 +1,165 @@
 """Config flow for Estaciones y Servicios Chile integration."""
+from __future__ import annotations
+
+import asyncio
 from typing import Any
+
+from aiohttp import ClientError
 import voluptuous as vol
 
-from homeassistant import config_entries
-from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import config_validation as cv
-
-from .const import (
-    DOMAIN,
-    CONF_TANK_CAPACITY,
-    CONF_PREFERRED_FUEL,
-    CONF_STATION_COUNT,
-    DEFAULT_TANK_CAPACITY,
-    DEFAULT_PREFERRED_FUEL,
-    DEFAULT_STATION_COUNT,
-    FUEL_TYPES,
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
 )
 
+from .const import (
+    API_URL,
+    CONF_COMPANIES,
+    CONF_CONSUMPTION,
+    CONF_PREFERRED_FUEL,
+    CONF_STATION_COUNT,
+    CONF_TANK_CAPACITY,
+    DEFAULT_CONSUMPTION,
+    DEFAULT_PREFERRED_FUEL,
+    DEFAULT_STATION_COUNT,
+    DEFAULT_TANK_CAPACITY,
+    DOMAIN,
+    FUEL_TYPES,
+    KNOWN_COMPANIES,
+    LOGGER,
+)
+from .coordinator import companies_in
 
-class EstacionesChileConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+
+async def _async_fetch_companies(hass: HomeAssistant) -> list[str]:
+    """Read the company names from the API, falling back to a known list."""
+    try:
+        async with asyncio.timeout(20):
+            response = await async_get_clientsession(hass).get(API_URL)
+            raw = await response.json(content_type=None)
+        companies = companies_in(raw) if isinstance(raw, list) else []
+    except (ClientError, TimeoutError, ValueError) as err:
+        LOGGER.debug("Could not read companies from the API: %s", err)
+        companies = []
+    return companies or list(KNOWN_COMPANIES)
+
+
+def _build_schema(
+    tank_capacity: float,
+    preferred_fuel: str,
+    station_count: int,
+    consumption: float,
+    companies: list[str],
+    company_options: list[str],
+) -> vol.Schema:
+    """Return the form schema with the given defaults."""
+    # Keep already-selected companies selectable even if the API no longer lists them
+    options = sorted({*company_options, *companies}, key=str.casefold)
+    return vol.Schema(
+        {
+            vol.Required(CONF_TANK_CAPACITY, default=float(tank_capacity)): vol.All(
+                vol.Coerce(float), vol.Range(min=1, max=1000)
+            ),
+            vol.Required(CONF_PREFERRED_FUEL, default=preferred_fuel): vol.In(list(FUEL_TYPES)),
+            vol.Required(CONF_CONSUMPTION, default=float(consumption)): NumberSelector(
+                NumberSelectorConfig(
+                    min=1, max=60, step=0.1, mode=NumberSelectorMode.BOX, unit_of_measurement="km/l"
+                )
+            ),
+            vol.Optional(CONF_COMPANIES, default=list(companies)): SelectSelector(
+                SelectSelectorConfig(
+                    options=options,
+                    multiple=True,
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(CONF_STATION_COUNT, default=int(station_count)): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=50)
+            ),
+        }
+    )
+
+
+class EstacionesChileConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Estaciones y Servicios Chile."""
 
     VERSION = 1
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
-        errors: dict[str, str] = {}
+        # Only one instance: the sensor is always centred on the home zone
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
 
         if user_input is not None:
-            # We don't allow duplicate configurations to keep it simple
-            await self.async_set_unique_id(DOMAIN)
-            self._abort_if_unique_id_configured()
-
-            return self.async_create_entry(
-                title="Estaciones Chile",
-                data=user_input,
-            )
-
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_TANK_CAPACITY, default=DEFAULT_TANK_CAPACITY): vol.Coerce(float),
-                vol.Required(CONF_PREFERRED_FUEL, default=DEFAULT_PREFERRED_FUEL): vol.In(list(FUEL_TYPES.keys())),
-                vol.Required(CONF_STATION_COUNT, default=DEFAULT_STATION_COUNT): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=50)
-                ),
-            }
-        )
+            return self.async_create_entry(title="Estaciones Chile", data=user_input)
 
         return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
+            step_id="user",
+            data_schema=_build_schema(
+                DEFAULT_TANK_CAPACITY,
+                DEFAULT_PREFERRED_FUEL,
+                DEFAULT_STATION_COUNT,
+                DEFAULT_CONSUMPTION,
+                [],
+                await _async_fetch_companies(self.hass),
+            ),
         )
 
     @staticmethod
     @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> config_entries.OptionsFlow:
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         """Create the options flow."""
-        return EstacionesChileOptionsFlowHandler(config_entry)
+        return EstacionesChileOptionsFlowHandler()
 
 
-class EstacionesChileOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for Estaciones y Servicios Chile."""
+class EstacionesChileOptionsFlowHandler(OptionsFlow):
+    """Handle options flow for Estaciones y Servicios Chile.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    Since Home Assistant 2024.11 ``self.config_entry`` is provided automatically;
+    assigning it manually is deprecated and fails on recent versions.
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(data=user_input)
 
-        # Get existing values, fallback to data, then defaults
-        tank_capacity = self.config_entry.options.get(
-            CONF_TANK_CAPACITY,
-            self.config_entry.data.get(CONF_TANK_CAPACITY, DEFAULT_TANK_CAPACITY)
-        )
-        preferred_fuel = self.config_entry.options.get(
-            CONF_PREFERRED_FUEL,
-            self.config_entry.data.get(CONF_PREFERRED_FUEL, DEFAULT_PREFERRED_FUEL)
-        )
-        station_count = self.config_entry.options.get(
-            CONF_STATION_COUNT,
-            self.config_entry.data.get(CONF_STATION_COUNT, DEFAULT_STATION_COUNT)
+        entry = self.config_entry
+
+        def current(key: str, default: Any) -> Any:
+            return entry.options.get(key, entry.data.get(key, default))
+
+        coordinator = getattr(entry, "runtime_data", None)
+        company_options = getattr(coordinator, "companies", None) or await _async_fetch_companies(
+            self.hass
         )
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_TANK_CAPACITY, default=float(tank_capacity)): vol.Coerce(float),
-                vol.Required(CONF_PREFERRED_FUEL, default=preferred_fuel): vol.In(list(FUEL_TYPES.keys())),
-                vol.Required(CONF_STATION_COUNT, default=int(station_count)): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=50)
-                ),
-            }
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_build_schema(
+                current(CONF_TANK_CAPACITY, DEFAULT_TANK_CAPACITY),
+                current(CONF_PREFERRED_FUEL, DEFAULT_PREFERRED_FUEL),
+                current(CONF_STATION_COUNT, DEFAULT_STATION_COUNT),
+                current(CONF_CONSUMPTION, DEFAULT_CONSUMPTION),
+                current(CONF_COMPANIES, []),
+                company_options,
+            ),
         )
-
-        return self.async_show_form(step_id="init", data_schema=data_schema)

@@ -7,9 +7,19 @@
         "data": {
           "tank_capacity": "Capacidad del estanque (Litros)",
           "preferred_fuel": "Combustible preferido",
-          "station_count": "Número de estaciones a mostrar"
+          "station_count": "Número de estaciones a mostrar",
+          "consumption": "Consumo promedio (km/l)",
+          "companies": "Compañías preferidas"
+        },
+        "data_description": {
+          "companies": "Solo estas compañías se muestran en el mapa y se usan para precios y ahorro. Déjalo vacío para incluir todas.",
+          "consumption": "Se usa para estimar cuánto cuesta ir a una estación más lejana. Por defecto: 14 km/l."
         }
       }
+    },
+    "abort": {
+      "already_configured": "Solo se permite una instancia de esta integración.",
+      "single_instance_allowed": "Solo se permite una instancia de esta integración."
     }
   },
   "options": {
@@ -20,8 +30,27 @@
         "data": {
           "tank_capacity": "Capacidad del estanque (Litros)",
           "preferred_fuel": "Combustible preferido",
-          "station_count": "Número de estaciones a mostrar"
+          "station_count": "Número de estaciones a mostrar",
+          "consumption": "Consumo promedio (km/l)",
+          "companies": "Compañías preferidas"
+        },
+        "data_description": {
+          "companies": "Solo estas compañías se muestran en el mapa y se usan para precios y ahorro. Déjalo vacío para incluir todas.",
+          "consumption": "Se usa para estimar cuánto cuesta ir a una estación más lejana. Por defecto: 14 km/l."
         }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "closest_stations": {
+        "name": "Más cercanas"
+      },
+      "cheapest_fuel": {
+        "name": "Más barato {fuel}"
+      },
+      "best_saving": {
+        "name": "Mayor ahorro"
       }
     }
   }

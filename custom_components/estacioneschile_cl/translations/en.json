@@ -7,9 +7,19 @@
         "data": {
           "tank_capacity": "Tank Capacity (Liters)",
           "preferred_fuel": "Preferred Fuel Type",
-          "station_count": "Number of stations to display"
+          "station_count": "Number of stations to display",
+          "consumption": "Average consumption (km/l)",
+          "companies": "Preferred companies"
+        },
+        "data_description": {
+          "companies": "Only these companies are shown on the map and used for prices and savings. Leave empty to include all.",
+          "consumption": "Used to estimate the cost of driving to a farther station. Default: 14 km/l."
         }
       }
+    },
+    "abort": {
+      "already_configured": "Only one instance of this integration is allowed.",
+      "single_instance_allowed": "Only one instance of this integration is allowed."
     }
   },
   "options": {
@@ -20,8 +30,27 @@
         "data": {
           "tank_capacity": "Tank Capacity (Liters)",
           "preferred_fuel": "Preferred Fuel Type",
-          "station_count": "Number of stations to display"
+          "station_count": "Number of stations to display",
+          "consumption": "Average consumption (km/l)",
+          "companies": "Preferred companies"
+        },
+        "data_description": {
+          "companies": "Only these companies are shown on the map and used for prices and savings. Leave empty to include all.",
+          "consumption": "Used to estimate the cost of driving to a farther station. Default: 14 km/l."
         }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "closest_stations": {
+        "name": "Closest stations"
+      },
+      "cheapest_fuel": {
+        "name": "Cheapest {fuel}"
+      },
+      "best_saving": {
+        "name": "Best saving"
       }
     }
   }

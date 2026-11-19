@@ -4,16 +4,38 @@ import logging
 LOGGER = logging.getLogger(__package__)
 
 DOMAIN = "estacioneschile_cl"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["geo_location", "sensor"]
+VERSION = "1.3.0"
+
+# Source name of the geo_location entities (used by the native map card)
+GEO_SOURCE = DOMAIN
+NO_FUEL = "Ninguno"
+
+API_URL = "https://integracion.copec.cl/stations?codEs=-1&company=-1&region=-1&comuna=-1"
+UPDATE_INTERVAL_MINUTES = 30
+
+# Lovelace card, served by the integration and loaded automatically
+CARD_URL_BASE = "/estacioneschile_cl_local"
+CARD_FILENAME = "estacioneschile-card.js"
 
 # Configuration keys
 CONF_TANK_CAPACITY = "tank_capacity"
 CONF_PREFERRED_FUEL = "preferred_fuel"
 CONF_STATION_COUNT = "station_count"
+CONF_CONSUMPTION = "consumption"
+CONF_COMPANIES = "companies"
 
 # Defaults
 DEFAULT_TANK_CAPACITY = 50.0
 DEFAULT_PREFERRED_FUEL = "Ninguno"
+DEFAULT_CONSUMPTION = 14.0  # km/l, used when the user does not set it
+
+# Companies offered in the config flow when the API can't be reached.
+# The real list is read from the API (the user can also type a name).
+KNOWN_COMPANIES = ["Aramco", "COPEC", "Enex", "Petrobras", "Shell", "Terpel"]
+
+# Fuels whose "cheapest" sensor is enabled by default (the rest can be enabled by the user)
+FUELS_ENABLED_BY_DEFAULT = ("93", "95", "97", "Diesel")
 DEFAULT_STATION_COUNT = 10
 
 # Fuel types mapping

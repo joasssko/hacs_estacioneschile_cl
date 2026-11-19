@@ -1,17 +1,14 @@
 {
   "domain": "estacioneschile_cl",
   "name": "Estaciones y servicios Chile",
-  "codeowners": [
-    "@joasssko"
-  ],
+  "codeowners": ["@joasssko"],
   "config_flow": true,
-  "dependencies": [],
-  "documentation": "https://github.com/joasssko/estacioneschile_cl",
-  "integration_type": "device",
+  "dependencies": ["frontend", "http"],
+  "documentation": "https://github.com/joasssko/hacs_estacioneschile_cl",
+  "integration_type": "service",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/joasssko/estacioneschile_cl/issues",
-  "requirements": [
-    "aiohttp"
-  ],
-  "version": "1.0.0"
+  "issue_tracker": "https://github.com/joasssko/hacs_estacioneschile_cl/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "1.3.0"
 }
