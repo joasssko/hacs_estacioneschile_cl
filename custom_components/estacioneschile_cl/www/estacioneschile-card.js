@@ -6,7 +6,7 @@
  * modo oscuro del tema, tamaño dinámico de la tarjeta).
  */
 
-const CARD_VERSION = '1.3.0';
+const CARD_VERSION = '1.3.1';
 const LEAFLET_VERSION = '1.9.4';
 const LEAFLET_JS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`;
 const LEAFLET_CSS = `https://unpkg.com/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`;
@@ -14,14 +14,16 @@ const DEFAULT_CENTER = [-33.4489, -70.6693]; // Santiago
 const DEFAULT_CONSUMPTION = 14; // km/l
 const FUELS = ['93', '95', '97', 'Diesel', 'Kerosene', 'GLP', 'GNC', 'Bluemax'];
 
-// Mismas teselas que usa el mapa nativo de Home Assistant (CARTO), con variante clara y oscura.
-const TILE_LAYERS = {
-  light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-};
+// Teselas del mapa.
+// Desde Home Assistant 2026.10 CARTO exige API key ("API KEY REQUIRED"), así que usamos la
+// integración nativa `map_tiles`: HA descarga y cachea las teselas de OpenStreetMap y el
+// navegador no contacta servidores externos. Requiere un token que HA rota cada 30 minutos.
+// En versiones anteriores se usan directamente las teselas estándar de OpenStreetMap.
+const HA_TILE_PATH = '/api/map_tiles/raster/{z}/{x}/{y}.png?token=';
+const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const TILE_TOKEN_REFRESH_MS = 20 * 60 * 1000;
 const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' +
-  ' &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+  '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
 
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -252,11 +254,16 @@ class EstacionesChileCard extends HTMLElement {
     if (this.map) {
       // Al volver a mostrar el panel el contenedor puede haber cambiado de tamaño.
       requestAnimationFrame(() => this.map && this.map.invalidateSize());
+      if (this.tileLayer && this.hasMapTiles()) {
+        this.refreshTileToken();
+        this.startTokenTimer();
+      }
     }
     this.observeResize();
   }
 
   disconnectedCallback() {
+    this.stopTokenTimer();
     if (this._resizeObserver) {
       this._resizeObserver.disconnect();
       this._resizeObserver = null;
@@ -435,6 +442,7 @@ class EstacionesChileCard extends HTMLElement {
           color: var(--primary-text-color);
         }
         .leaflet-container a.leaflet-popup-close-button { color: var(--secondary-text-color); }
+        .dark .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9); }
         .dark .leaflet-control-attribution { background: rgba(0, 0, 0, 0.5); color: #bbb; }
         .dark .leaflet-control-attribution a { color: #ddd; }
         .dark .leaflet-bar a { background: #2b2b2b; color: #eee; border-color: #444; }
@@ -693,20 +701,72 @@ class EstacionesChileCard extends HTMLElement {
       });
   }
 
-  applyTileLayer() {
+  hasMapTiles() {
+    const components = this._hass && this._hass.config && this._hass.config.components;
+    return Array.isArray(components) && components.includes('map_tiles');
+  }
+
+  async fetchTileToken() {
+    try {
+      const { token } = await this._hass.callWS({ type: 'map_tiles/access_token' });
+      return token || null;
+    } catch (err) {
+      console.warn('[estacioneschile-card] No se pudo obtener el token de map_tiles', err);
+      return null;
+    }
+  }
+
+  tileUrl(token) {
+    if (!token) return OSM_TILE_URL;
+    const path = HA_TILE_PATH + encodeURIComponent(token);
+    return typeof this._hass.hassUrl === 'function' ? this._hass.hassUrl(path) : path;
+  }
+
+  /** Renueva el token antes de que HA lo rote (dura 30 min, renovamos cada 20). */
+  async refreshTileToken() {
+    if (!this.tileLayer || !this.hasMapTiles()) return;
+    const token = await this.fetchTileToken();
+    if (token && this.tileLayer) this.tileLayer.setUrl(this.tileUrl(token), true);
+  }
+
+  startTokenTimer() {
+    this.stopTokenTimer();
+    if (!this.hasMapTiles()) return;
+    this._tokenTimer = setInterval(() => this.refreshTileToken(), TILE_TOKEN_REFRESH_MS);
+  }
+
+  stopTokenTimer() {
+    if (this._tokenTimer) clearInterval(this._tokenTimer);
+    this._tokenTimer = null;
+  }
+
+  async applyTileLayer() {
     if (!this.map || !window.L) return;
-    if (this.tileLayer) this.map.removeLayer(this.tileLayer);
-    const dark = Boolean(this._darkMode);
-    this.tileLayer = window.L.tileLayer(dark ? TILE_LAYERS.dark : TILE_LAYERS.light, {
-      attribution: TILE_ATTRIBUTION,
-      subdomains: 'abcd',
-      maxZoom: 20,
-    }).addTo(this.map);
     const container = this.shadowRoot.getElementById('map-container');
-    if (container) container.classList.toggle('dark', dark);
+    // OpenStreetMap no tiene variante oscura en raster: se oscurece con un filtro CSS.
+    if (container) container.classList.toggle('dark', Boolean(this._darkMode));
+    if (this.tileLayer || this._tileLoading) return;
+
+    this._tileLoading = true;
+    const token = this.hasMapTiles() ? await this.fetchTileToken() : null;
+    this._tileLoading = false;
+    if (!this.map || this.tileLayer) return;
+    this.tileLayer = window.L.tileLayer(this.tileUrl(token), {
+      attribution: TILE_ATTRIBUTION,
+      maxZoom: 19,
+    }).addTo(this.map);
+    // Si el token expiró (por ejemplo, tras suspender el dispositivo), se pide uno nuevo.
+    let retrying = false;
+    this.tileLayer.on('tileerror', () => {
+      if (retrying || !token) return;
+      retrying = true;
+      this.refreshTileToken().finally(() => setTimeout(() => (retrying = false), 10000));
+    });
+    this.startTokenTimer();
   }
 
   destroyMap() {
+    this.stopTokenTimer();
     if (this.map) this.map.remove();
     this.map = null;
     this.tileLayer = null;

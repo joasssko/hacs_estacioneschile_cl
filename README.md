@@ -137,6 +137,6 @@ La tarjeta funciona en la vista **Secciones** (ocupa el ancho completo por defec
 * 🗺️ **Mapa Interactivo**: Muestra un marcador azul en tu hogar y marcadores naranjas para las estaciones de servicio más cercanas. La estación con el precio más barato para el combustible seleccionado se destaca con un marcador **verde**.
 * ⚡ **Selectores Dinámicos**: Permite alternar la visualización entre los tipos de combustible (`93`, `95`, `97`, etc.) directamente en la tarjeta, recalculando los costos de llenado en tiempo real.
 * 🔍 **Enfoque de Mapa y Popups**: Al hacer clic en cualquier estación de la lista, el mapa se centrará en ella de forma suave y abrirá su información detallada.
-* 🌙 **Modo oscuro**: El mapa usa las mismas teselas que el mapa nativo de Home Assistant y cambia automáticamente entre claro y oscuro.
+* 🌙 **Mapa sin API key y con modo oscuro**: Desde Home Assistant 2026.10 el mapa carga las teselas a través de la integración nativa **Map tiles** (OpenStreetMap, cacheadas por tu Home Assistant), así que no aparece el aviso "API KEY REQUIRED". En versiones anteriores usa las teselas estándar de OpenStreetMap. Sigue el modo claro u oscuro de tu tema.
 * 🧭 **Cómo llegar**: Cada estación expandida incluye un enlace para abrir la ruta en Google Maps.
 * 📦 **Acordeón de Detalles**: Al presionar una estación, esta se expandirá para mostrar la grilla completa de precios para todos sus combustibles disponibles, junto a una lista de etiquetas visuales con las amenidades y servicios que ofrece.
