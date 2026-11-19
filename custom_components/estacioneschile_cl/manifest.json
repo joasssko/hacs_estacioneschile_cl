@@ -1,6 +1,7 @@
 {
   "domain": "estacioneschile_cl",
   "name": "Estaciones y servicios Chile",
+  "categories": ["local_services"],
   "codeowners": ["@joasssko"],
   "config_flow": true,
   "dependencies": ["frontend", "http"],

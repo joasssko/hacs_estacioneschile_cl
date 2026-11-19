@@ -140,3 +140,8 @@ La tarjeta funciona en la vista **Secciones** (ocupa el ancho completo por defec
 * 🌙 **Mapa sin API key y con modo oscuro**: Desde Home Assistant 2026.10 el mapa carga las teselas a través de la integración nativa **Map tiles** (OpenStreetMap, cacheadas por tu Home Assistant), así que no aparece el aviso "API KEY REQUIRED". En versiones anteriores usa las teselas estándar de OpenStreetMap. Sigue el modo claro u oscuro de tu tema.
 * 🧭 **Cómo llegar**: Cada estación expandida incluye un enlace para abrir la ruta en Google Maps.
 * 📦 **Acordeón de Detalles**: Al presionar una estación, esta se expandirá para mostrar la grilla completa de precios para todos sus combustibles disponibles, junto a una lista de etiquetas visuales con las amenidades y servicios que ofrece.
+---
+
+## Licencia
+
+Distribuido bajo la licencia [MIT](LICENSE).
